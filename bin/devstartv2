@@ -1,0 +1,100 @@
+#!/bin/bash
+
+# ============================================================
+# devstartv2
+# Main entry point
+# ============================================================
+
+set -o pipefail
+
+# ------------------------------------------------------------
+# Locate devstart installation
+# ------------------------------------------------------------
+
+DEVSTART_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
+DEVSTART_ROOT="$(cd "$(dirname "$DEVSTART_SCRIPT")/.." && pwd)"
+
+
+# ------------------------------------------------------------
+# Load modules
+# ------------------------------------------------------------
+
+source "$DEVSTART_ROOT/lib/core.sh"
+source "$DEVSTART_ROOT/lib/config.sh"
+source "$DEVSTART_ROOT/lib/workspace.sh"
+source "$DEVSTART_ROOT/lib/registry.sh"
+source "$DEVSTART_ROOT/lib/manifest.sh"
+source "$DEVSTART_ROOT/lib/ui.sh"
+source "$DEVSTART_ROOT/lib/tmux.sh"
+source "$DEVSTART_ROOT/lib/launcher.sh"
+source "$DEVSTART_ROOT/lib/initializer.sh"
+
+
+
+# ------------------------------------------------------------
+# Initialization
+# ------------------------------------------------------------
+
+config_load
+
+# ------------------------------------------------------------
+# Help
+# ------------------------------------------------------------
+
+devstart_help() {
+    cat <<EOF
+
+devstartv2
+
+Usage:
+    devstartv2
+    devstartv2 --init
+    devstartv2 --help
+    devstartv2 --version
+
+Commands:
+    --init       Initialize the current directory as a project
+    --help       Show this help
+    --version    Show version
+
+EOF
+}
+
+# ------------------------------------------------------------
+# Version
+# ------------------------------------------------------------
+
+devstart_version() {
+    echo "devstartv2 $DEVSTART_VERSION"
+}
+
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
+
+case "${1:-}" in
+
+    --init)
+        initializer_run
+        ;;
+
+    --help|-h)
+        devstart_help
+        ;;
+
+    --version|-v)
+        devstart_version
+        ;;
+
+    "")
+        launcher_run
+        ;;
+
+    *)
+        echo "Unknown option: $1"
+        echo
+        devstart_help
+        exit 1
+        ;;
+
+esac
