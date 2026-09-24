@@ -108,49 +108,141 @@ initializer_load_existing() {
 
 initializer_draw() {
     local project_dir="$1"
+
     local index
     local directory
-    local status
+    local depth
+    local name
+    local prefix
+    local connector
+    local is_candidate
+    local next_directory
+    local next_depth
+    local is_last
 
     clear
 
     draw_line
-
     echo "📂 Pod Configuration"
     echo "Project: $project_dir"
-
     draw_line
 
-    if [[ "${#INITIALIZER_DIRECTORIES[@]}" -eq 0 ]]; then
+    if [[ "${#INITIALIZER_TREE_DIRECTORIES[@]}" -eq 0 ]]; then
 
         echo "No directories found."
         echo
 
     else
 
-        for index in "${!INITIALIZER_DIRECTORIES[@]}"; do
+        index=0
 
-            directory="${INITIALIZER_DIRECTORIES[$index]}"
+        for directory in "${INITIALIZER_TREE_DIRECTORIES[@]}"; do
 
-            if [[ -v "INITIALIZER_PODS[$directory]" ]]; then
+            is_candidate=0
 
-                if [[ -n "${INITIALIZER_PODS[$directory]}" ]]; then
-                    status="${INITIALIZER_PODS[$directory]}"
+            if [[ " ${INITIALIZER_DIRECTORIES[*]} " =~ " ${directory} " ]]; then
+                is_candidate=1
+            fi
+
+            # Calculate depth from the number of "/".
+            depth="${directory//[^\/]}"
+            depth="${#depth}"
+
+            name="${directory##*/}"
+
+            # ------------------------------------------------
+            # Root-level directory
+            # ------------------------------------------------
+
+            if (( depth == 0 )); then
+
+                if (( is_candidate )); then
+
+                    if [[ -v "INITIALIZER_PODS[$directory]" ]]; then
+                        echo "[$index] [✓] $name"
+                    else
+                        echo "[$index] [ ] $name"
+                    fi
+
+                    ((index++))
+
                 else
-                    status="Idle"
+
+                    echo "    $name"
+
                 fi
+
+                continue
+            fi
+
+            # ------------------------------------------------
+            # Nested directory
+            # ------------------------------------------------
+
+            prefix="$(printf '%*s' "$((depth * 4))" '')"
+
+            # Determine whether this is the last child
+            # of its parent.
+            is_last=1
+
+            for next_directory in "${INITIALIZER_TREE_DIRECTORIES[@]}"; do
+
+                [[ "$next_directory" == "$directory" ]] && continue
+
+                next_depth="${next_directory//[^\/]}"
+                next_depth="${#next_depth}"
+
+                if (( next_depth != depth )); then
+                    continue
+                fi
+
+                if [[ "${next_directory%/*}" == "${directory%/*}" ]]; then
+                    if [[ "$next_directory" > "$directory" ]]; then
+                        is_last=0
+                        break
+                    fi
+                fi
+
+            done
+
+            if (( is_last )); then
+                connector="└── "
+            else
+                connector="├── "
+            fi
+
+            # ------------------------------------------------
+            # Runnable directory
+            # ------------------------------------------------
+
+            if (( is_candidate )); then
+
+                if [[ -v "INITIALIZER_PODS[$directory]" ]]; then
+
+                    echo "${prefix}${connector}[$index] [✓] $name"
+
+                else
+
+                    echo "${prefix}${connector}[$index] [ ] $name"
+
+                fi
+
+                ((index++))
+
+            # ------------------------------------------------
+            # Structural directory
+            # ------------------------------------------------
 
             else
 
-                status="Unconfigured"
+                echo "${prefix}${connector}$name"
 
             fi
-
-            echo "[$index] $directory ($status)"
 
         done
 
         echo
+
     fi
 
     echo "[S] Save & Confirm"
@@ -159,7 +251,6 @@ initializer_draw() {
 
     draw_line
 }
-
 
 # ------------------------------------------------------------
 # Configure Directory
@@ -378,10 +469,155 @@ initializer_run() {
 
     fi
 
+    # ------------------------------------------------------------
+    # Discover Directories
+    # ------------------------------------------------------------
+
+    INITIALIZER_DISCOVERY_MAX_DEPTH=3
+
+    initializer_is_runnable_directory() {
+        local directory="$1"
+
+        [[ -f "$directory/package.json" ]] && return 0
+        [[ -f "$directory/pyproject.toml" ]] && return 0
+        [[ -f "$directory/setup.py" ]] && return 0
+        [[ -f "$directory/setup.cfg" ]] && return 0
+        [[ -f "$directory/composer.json" ]] && return 0
+        [[ -f "$directory/go.mod" ]] && return 0
+        [[ -f "$directory/Cargo.toml" ]] && return 0
+        [[ -f "$directory/pom.xml" ]] && return 0
+        [[ -f "$directory/build.gradle" ]] && return 0
+        [[ -f "$directory/build.gradle.kts" ]] && return 0
+        [[ -f "$directory/Gemfile" ]] && return 0
+
+        compgen -G "$directory"/*.csproj >/dev/null 2>&1 && return 0
+        compgen -G "$directory"/*.fsproj >/dev/null 2>&1 && return 0
+        compgen -G "$directory"/*.sln >/dev/null 2>&1 && return 0
+
+        return 1
+    }
+
+
+    initializer_scan_directory() {
+        local directory="$1"
+        local relative_path="$2"
+        local depth="$3"
+
+        local child
+        local child_name
+        local child_relative
+
+        (( depth >= INITIALIZER_DISCOVERY_MAX_DEPTH )) && return 0
+
+        while IFS= read -r child; do
+
+            [[ -d "$child" ]] || continue
+
+            child_name="${child##*/}"
+
+            case "$child_name" in
+                .*|node_modules|vendor|dist|build|target|__pycache__|.venv|venv)
+                    continue
+                    ;;
+            esac
+
+            if [[ -n "$relative_path" ]]; then
+                child_relative="$relative_path/$child_name"
+            else
+                child_relative="$child_name"
+            fi
+
+            INITIALIZER_TREE_DIRECTORIES+=("$child_relative")
+
+            if initializer_is_runnable_directory "$child"; then
+                INITIALIZER_DIRECTORIES+=("$child_relative")
+                continue
+            fi
+
+            initializer_scan_directory \
+                "$child" \
+                "$child_relative" \
+                "$((depth + 1))"
+
+        done < <(
+            find "$directory" \
+                -mindepth 1 \
+                -maxdepth 1 \
+                -type d \
+                -print |
+            sort
+        )
+    }
+
+
+initializer_discover_directories() {
+    local project_dir="$1"
+    local directory
+    local configured
+    local parent
+    local item
+
+    INITIALIZER_DIRECTORIES=()
+    INITIALIZER_TREE_DIRECTORIES=()
+
     # --------------------------------------------------------
-    # Discover directories
+    # Discover directories first
     # --------------------------------------------------------
 
+    initializer_scan_directory \
+        "$project_dir" \
+        "" \
+        0
+
+    # --------------------------------------------------------
+    # Preserve previously configured pods
+    # --------------------------------------------------------
+
+    for configured in "${INITIALIZER_ORDER[@]}"; do
+
+        [[ -v "INITIALIZER_PODS[$configured]" ]] || continue
+
+        # Add to runnable/selectable list if missing.
+        if [[ ! " ${INITIALIZER_DIRECTORIES[*]} " =~ " ${configured} " ]]; then
+            INITIALIZER_DIRECTORIES+=("$configured")
+        fi
+
+        # Add configured directory to the visual tree if missing.
+        if [[ ! " ${INITIALIZER_TREE_DIRECTORIES[*]} " =~ " ${configured} " ]]; then
+            INITIALIZER_TREE_DIRECTORIES+=("$configured")
+        fi
+
+        # Add missing parents to the visual tree.
+        parent="$configured"
+
+        while [[ "$parent" == */* ]]; do
+
+            parent="${parent%/*}"
+
+            if [[ ! " ${INITIALIZER_TREE_DIRECTORIES[*]} " =~ " ${parent} " ]]; then
+                INITIALIZER_TREE_DIRECTORIES+=("$parent")
+            fi
+
+        done
+
+    done
+
+    # --------------------------------------------------------
+    # Remove duplicate tree entries
+    # --------------------------------------------------------
+
+    local unique_tree=()
+
+    for item in "${INITIALIZER_TREE_DIRECTORIES[@]}"; do
+
+        if [[ ! " ${unique_tree[*]} " =~ " ${item} " ]]; then
+            unique_tree+=("$item")
+        fi
+
+    done
+
+    INITIALIZER_TREE_DIRECTORIES=("${unique_tree[@]}")
+}
     # --------------------------------------------------------
     # Initialize state
     # --------------------------------------------------------

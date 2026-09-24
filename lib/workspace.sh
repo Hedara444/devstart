@@ -96,6 +96,41 @@ WORKSPACE_NAMES=(
       return 1
   }
 
+  workspace_remove_path() {
+      local project_path="$1"
+      local temp_file
+      local workspace_name
+      local project_name
+      local registered_path
+
+      workspace_init
+
+      [[ ! -s "$DEVSTART_WORKSPACES" ]] && return 0
+
+      temp_file="$(mktemp)" || return 1
+
+      while IFS='|' read -r workspace_name project_name registered_path; do
+
+          [[ -z "$workspace_name" && -z "$project_name" && -z "$registered_path" ]] && continue
+
+          [[ -z "$workspace_name" ]] && continue
+          [[ -z "$project_name" ]] && continue
+          [[ -z "$registered_path" ]] && continue
+
+          if [[ "$registered_path" == "$project_path" ]]; then
+              continue
+          fi
+
+          printf '%s|%s|%s\n' \
+              "$workspace_name" \
+              "$project_name" \
+              "$registered_path" >> "$temp_file"
+
+      done < "$DEVSTART_WORKSPACES"
+
+      mv "$temp_file" "$DEVSTART_WORKSPACES"
+  }
+
   workspace_assign() {
       local project_name="$1"
       local project_path="$2"
@@ -157,7 +192,7 @@ WORKSPACE_NAMES=(
       done
   }
 
-workspace_sync() {
+  workspace_sync() {
     registry_load
 
     local i
