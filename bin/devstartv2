@@ -15,6 +15,43 @@ DEVSTART_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}")"
 DEVSTART_ROOT="$(cd "$(dirname "$DEVSTART_SCRIPT")/.." && pwd)"
 
 
+
+# ------------------------------------------------------------
+# Update Checker
+# ------------------------------------------------------------
+
+source "$DEVSTART_ROOT/update.sh" || {
+    echo "Could not load update checker."
+    exit 1
+}
+
+if [[ -z "${1:-}" && "${DEVSTART_SKIP_UPDATE:-0}" != "1" ]]; then
+
+    update_status=0
+
+    update_check "$DEVSTART_ROOT" || update_status=$?
+
+    case "$update_status" in
+
+        1)
+            # User chose to quit.
+            exit 0
+            ;;
+
+        2)
+            # Update succeeded. Restart using the new code,
+            # skipping the update check on this launch.
+            DEVSTART_SKIP_UPDATE=1
+            export DEVSTART_SKIP_UPDATE
+
+            exec "$DEVSTART_ROOT/bin/devstartv2"
+            ;;
+
+    esac
+
+fi
+
+
 # ------------------------------------------------------------
 # Load modules
 # ------------------------------------------------------------
