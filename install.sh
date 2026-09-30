@@ -178,6 +178,24 @@ ln -sfn "$INSTALLER_ROOT/bin/devstartv2" "$INSTALL_BIN" || {
     exit 1
 }
 
+# ------------------------------------------------------------
+# Configure PATH
+# ------------------------------------------------------------
+
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+
+for startup_file in "$HOME/.profile" "$HOME/.bashrc"; do
+    if ! grep -Fq "$PATH_LINE" "$startup_file" 2>/dev/null; then
+        {
+            echo
+            echo "# Added by devstartv2 installer"
+            echo "$PATH_LINE"
+        } >> "$startup_file"
+    fi
+done
+
+echo "PATH configuration added to shell startup files."
+
 chmod +x "$INSTALLER_ROOT/bin/devstartv2"
 
 echo "Installation completed."
