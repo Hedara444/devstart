@@ -1,6 +1,3 @@
-You're right — I only described it instead of actually giving you the Markdown content. Here it is in full.
-
-Save this manually as:
 
 `DEVSTARTV2_PROGRESS.md`
 
